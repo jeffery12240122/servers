@@ -3,21 +3,30 @@ import os
 import argparse
 import hashlib
 import json
-import shutil  # 引入 shutil 模組
+import shutil
+import base64  # 用於加鹽密碼
 
 app = Flask(__name__)
-app.secret_key = "your_secret_key"  # 用於 Session 管理
+app.secret_key = os.getenv("SECRET_KEY", "default_secret_key")  # 從環境變數讀取密鑰
 
 SHARED_FOLDER = "./shared"
 ACCOUNTS_FILE = "accounts.json"
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'pdf', 'txt'}
 
 # 初始化資料夾
 if not os.path.exists(SHARED_FOLDER):
     os.makedirs(SHARED_FOLDER)
 
-# 加密密碼
+# 加鹽加密密碼
 def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
+    salt = base64.b64encode(os.urandom(16)).decode('utf-8')
+    salted_password = salt + password
+    return f"{salt}:{hashlib.sha256(salted_password.encode()).hexdigest()}"
+
+def verify_password(stored_password, provided_password):
+    salt, hashed = stored_password.split(':')
+    salted_password = salt + provided_password
+    return hashed == hashlib.sha256(salted_password.encode()).hexdigest()
 
 # 載入帳號資料
 def load_accounts():
@@ -60,7 +69,11 @@ def delete_user(username):
     del accounts[username]
     save_accounts(accounts)
     print(f"成功刪除帳號 {username}！")
-    
+
+# 檢查檔案類型是否合法
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
 # 命令列解析器
 def cli():
     parser = argparse.ArgumentParser(description="用戶管理工具")
@@ -90,11 +103,11 @@ def login():
     password = request.form.get("password")
 
     accounts = load_accounts()
-    if username in accounts and accounts[username] == hash_password(password):
+    if username in accounts and verify_password(accounts[username], password):
         session["username"] = username
         return redirect(url_for("dashboard"))
     else:
-        return "登入失敗：帳號或密碼錯誤！"
+        return "登入失敗：帳號或密碼錯誤！", 401
 
 # 登出功能
 @app.route("/logout")
@@ -102,7 +115,7 @@ def logout():
     session.pop("username", None)
     return redirect(url_for("home"))
 
-# 使用者主頁（顯示檔案）
+# 使用者主頁：檔案管理（上傳與下載）
 @app.route("/dashboard", methods=["GET", "POST"])
 def dashboard():
     if "username" not in session:
@@ -114,10 +127,25 @@ def dashboard():
     if not os.path.exists(user_folder):
         return "用戶資料夾不存在！", 404
 
+    # 處理檔案上傳請求
+    if request.method == "POST":
+        if 'file' not in request.files:
+            return "未選擇檔案！", 400
+        file = request.files['file']
+        if file.filename == '':
+            return "檔案名稱空白！", 400
+        if not allowed_file(file.filename):
+            return "不支持的檔案類型！", 400
+
+        filepath = os.path.join(user_folder, file.filename)
+        file.save(filepath)
+        return "檔案上傳成功！"
+
     # 列出用戶的檔案
     files = os.listdir(user_folder)
     return render_template("dashboard.html", username=username, files=files)
 
+# 檔案下載功能
 @app.route("/download/<filename>")
 def download_file(filename):
     if "username" not in session:
@@ -126,21 +154,15 @@ def download_file(filename):
     username = session["username"]
     user_folder = os.path.join(SHARED_FOLDER, username)
 
-    # 調試日誌
-    print(f"檢查用戶資料夾：{user_folder}")
-    print(f"資料夾內容：{os.listdir(user_folder)}")
-    print(f"嘗試下載檔案名稱：{filename}")
+    # 防止目錄遍歷攻擊
+    if '..' in filename or filename.startswith('/'):
+        return "非法檔案名稱！", 400
 
-    # 確認檔案是否存在
     filepath = os.path.join(user_folder, filename)
     if os.path.exists(filepath) and os.path.isfile(filepath):
         return send_from_directory(user_folder, filename)
     else:
-        print(f"檔案不存在或名稱錯誤：{filepath}")
         return "檔案不存在！", 404
-
-
-
 
 # 啟動伺服器或命令列
 if __name__ == "__main__":
