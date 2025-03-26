@@ -5,13 +5,14 @@ import hashlib
 import json
 import shutil
 import base64  # 用於加鹽密碼
+from flask import send_file
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "default_secret_key")  # 從環境變數讀取密鑰
 
 SHARED_FOLDER = "./shared"
 ACCOUNTS_FILE = "accounts.json"
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'pdf', 'txt'}
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'pdf', 'txt', 'json', 'xml'}
 
 # 初始化資料夾
 if not os.path.exists(SHARED_FOLDER):
@@ -160,7 +161,8 @@ def download_file(filename):
 
     filepath = os.path.join(user_folder, filename)
     if os.path.exists(filepath) and os.path.isfile(filepath):
-        return send_from_directory(user_folder, filename)
+        # 使用 send_file 強制下載
+        return send_file(filepath, as_attachment=True)
     else:
         return "檔案不存在！", 404
 
