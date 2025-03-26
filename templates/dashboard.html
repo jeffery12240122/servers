@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>用戶檔案管理</title>
+</head>
+<body>
+    <h1>歡迎, {{ username }}</h1>
+
+    <!-- 檔案列表及下載 -->
+    <h2>檔案列表</h2>
+    <ul>
+        {% for file in files %}
+        <li><a href="/download/{{ file }}">{{ file }}</a></li>
+        {% endfor %}
+    </ul>
+
+    <a href="/logout">登出</a>
+</body>
+</html>
